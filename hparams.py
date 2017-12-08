@@ -77,6 +77,11 @@ hparams = tf.contrib.training.HParams(
     min_level_db=-100,
     ref_level_db=20,
 
+    coded_env_dim = 128,
+    code_env=False,
+    code_aper=False,
+    vocoder = "world",
+    
     # Model:
     downsample_step=4,  # must be 4 when builder="nyanko"
     outputs_per_step=1,  # must be 1 when builder="nyanko"
