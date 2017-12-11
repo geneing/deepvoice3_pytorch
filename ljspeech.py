@@ -55,14 +55,19 @@ def _process_utterance(out_dir, index, wav_path, text):
     wav = audio.load_wav(wav_path)
 
     if hparams.vocoder=="world":
+        spectrogram = audio.spectrogram(wav).astype(np.float32)
+
         f0, sp, ap = pw.wav2world(wav.astype(np.double), hparams.sample_rate)
         ap_coded=pw.code_aperiodicity(ap,hparams.sample_rate)
         sp_coded=pw.code_spectral_envelope(sp,hparams.sample_rate,hparams.coded_env_dim)
-        n_frames = f0.shape[0]
-            
-        world_filename = 'ljspeech-world-%05d.npy' % index
-        np.save(os.path.join(out_dir, world_filename), {'f0':f0,'sp':sp,'ap':ap,"ap_coded":ap_coded,"sp_coded":sp_coded}, allow_pickle=True)
-        return (world_filename, "", n_frames, text)
+        
+        world_spec = np.hstack([f0[:,np.newaxis],sp,ap])
+        n_frames = world_spec.shape[0]
+        spectrogram_filename = 'ljspeech-spec-%05d.npy' % index
+        encoded_filename = 'ljspeech-world-%05d.npy' % index
+        np.save(os.path.join(out_dir, spectrogram_filename), spectrogram.T, allow_pickle=False)
+        np.save(os.path.join(out_dir, encoded_filename), world_spec.T, allow_pickle=False)
+        
     else:
         # Compute the linear-scale spectrogram from the wav:
         spectrogram = audio.spectrogram(wav).astype(np.float32)
@@ -73,9 +78,9 @@ def _process_utterance(out_dir, index, wav_path, text):
     
         # Write the spectrograms to disk:
         spectrogram_filename = 'ljspeech-spec-%05d.npy' % index
-        mel_filename = 'ljspeech-mel-%05d.npy' % index
+        encoded_filename = 'ljspeech-mel-%05d.npy' % index
         np.save(os.path.join(out_dir, spectrogram_filename), spectrogram.T, allow_pickle=False)
-        np.save(os.path.join(out_dir, mel_filename), mel_spectrogram.T, allow_pickle=False)
+        np.save(os.path.join(out_dir, encoded_filename), mel_spectrogram.T, allow_pickle=False)
 
     # Return a tuple describing this training example:
-        return (spectrogram_filename, mel_filename, n_frames, text)
+    return (spectrogram_filename, encoded_filename, n_frames, text)
