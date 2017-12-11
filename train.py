@@ -42,7 +42,9 @@ from nnmnkwii.datasets import FileSourceDataset, FileDataSource
 from os.path import join, expanduser
 import random
 
-import librosa.display
+#import librosa.display
+import matplotlib as mpl
+mpl.use('Agg')
 from matplotlib import pyplot as plt
 import sys
 import os
