@@ -66,7 +66,7 @@ def _process_utterance(out_dir, index, wav_path, text):
         spectrogram_filename = 'ljspeech-spec-%05d.npy' % index
         encoded_filename = 'ljspeech-world-%05d.npy' % index
         np.save(os.path.join(out_dir, spectrogram_filename), spectrogram.T, allow_pickle=False)
-        np.save(os.path.join(out_dir, encoded_filename), world_spec.T, allow_pickle=False)
+        np.save(os.path.join(out_dir, encoded_filename), world_spec, allow_pickle=False)
         
     else:
         # Compute the linear-scale spectrogram from the wav:
