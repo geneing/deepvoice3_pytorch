@@ -194,7 +194,7 @@ class Decoder(nn.Module):
         self.dropout = dropout
         self.in_dim = in_dim
         self.r = r
-
+        
         in_channels = in_dim * r
         if isinstance(attention, bool):
             # expand True into [True, True, ...] and do the same with False
@@ -259,6 +259,7 @@ class Decoder(nn.Module):
         # Grouping multiple frames if necessary
         if inputs.size(-1) == self.in_dim:
             inputs = inputs.view(inputs.size(0), inputs.size(1) // self.r, -1)
+        
         assert inputs.size(-1) == self.in_dim * self.r
 
         keys, values = encoder_out

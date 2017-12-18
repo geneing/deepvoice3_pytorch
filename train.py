@@ -399,6 +399,8 @@ def spec_loss(y_hat, y, mask, priority_bin=None, priority_w=0):
         l1_loss = w * masked_l1(y_hat, y, mask=mask) + (1 - w) * l1(y_hat, y)
     else:
         assert mask is None
+        #print(y_hat.size())
+        #print(y.size())
         l1_loss = l1(y_hat, y)
 
     # Priority L1 loss
@@ -455,6 +457,7 @@ def train(model, data_loader, optimizer, writer,
     linear_dim = model.linear_dim
     r = hparams.outputs_per_step
     downsample_step = hparams.downsample_step
+    
     current_lr = init_lr
 
     binary_criterion = nn.BCELoss()
@@ -543,6 +546,7 @@ def train(model, data_loader, optimizer, writer,
 
             # mel:
             if train_seq2seq:
+             
                 mel_l1_loss, mel_binary_div = spec_loss(
                     mel_outputs[:, :-r, :], mel[:, r:, :], decoder_target_mask)
                 mel_loss = (1 - w) * mel_l1_loss + w * mel_binary_div
@@ -554,6 +558,7 @@ def train(model, data_loader, optimizer, writer,
             # linear:
             if train_postnet:
                 n_priority_freq = int(hparams.priority_freq / (fs * 0.5) * linear_dim)
+
                 linear_l1_loss, linear_binary_div = spec_loss(
                     linear_outputs[:, :-r, :], y[:, r:, :], target_mask,
                     priority_bin=n_priority_freq,

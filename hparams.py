@@ -25,7 +25,7 @@ hparams = tf.contrib.training.HParams(
     # deepvoice3: build DeepVoice3　https://arxiv.org/abs/1710.07654
     # nyanko: https://arxiv.org/abs/1710.08969
     # latest: Latest model I (@r9y9) have been working on.
-    builder="latest",
+    builder="deepvoice3",
 
     # Presets known to work good.
     # NOTE: If True, this will overwride params with presets[builder]
@@ -33,7 +33,7 @@ hparams = tf.contrib.training.HParams(
     presets={
         "deepvoice3": {
             "downsample_step": 1,
-            "outputs_per_step": 4,
+            "outputs_per_step": 1,
             "dropout": 1 - 0.95,
             "kernel_size": 7,
             "text_embed_dim": 256,
@@ -69,7 +69,7 @@ hparams = tf.contrib.training.HParams(
     },
 
     # Audio:
-    num_mels=80,
+    num_mels=131, #1027, #80,
     fft_size=1024,
     hop_size=256,
     sample_rate=22050,
@@ -83,10 +83,10 @@ hparams = tf.contrib.training.HParams(
     vocoder = "world",
     
     # Model:
-    downsample_step=4,  # must be 4 when builder="nyanko"
+    downsample_step=1,  # must be 4 when builder="nyanko"
     outputs_per_step=1,  # must be 1 when builder="nyanko"
     padding_idx=0,
-    max_positions=512,
+    max_positions=4*512,
     dropout=1 - 0.95,
     kernel_size=3,
     text_embed_dim=128,
@@ -119,7 +119,7 @@ hparams = tf.contrib.training.HParams(
     guided_attention_sigma=0.2,
 
     # Training:
-    batch_size=16,
+    batch_size=8,
     adam_beta1=0.5,
     adam_beta2=0.9,
     adam_eps=1e-6,
