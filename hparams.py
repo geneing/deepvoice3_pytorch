@@ -69,7 +69,7 @@ hparams = tf.contrib.training.HParams(
     },
 
     # Audio:
-    num_mels=131, #1027, #80,
+    num_mels=80, #WORLD encoder will adjust this value
     fft_size=1024,
     hop_size=256,
     sample_rate=22050,
@@ -78,8 +78,8 @@ hparams = tf.contrib.training.HParams(
     ref_level_db=20,
 
     coded_env_dim = 128,
-    code_env=False,
-    code_aper=False,
+    code_env=True,
+    code_aper=True,
     vocoder = "world",
     
     # Model:
@@ -104,7 +104,7 @@ hparams = tf.contrib.training.HParams(
 
     # Data loader
     pin_memory=True,
-    num_workers=2,
+    num_workers=8,
 
     # Loss
     masked_loss_weight=0.0,  # (1-w)*loss + w * masked_loss
@@ -119,7 +119,7 @@ hparams = tf.contrib.training.HParams(
     guided_attention_sigma=0.2,
 
     # Training:
-    batch_size=8,
+    batch_size=16,
     adam_beta1=0.5,
     adam_beta2=0.9,
     adam_eps=1e-6,

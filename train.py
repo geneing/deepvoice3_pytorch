@@ -51,6 +51,7 @@ import os
 from tensorboardX import SummaryWriter
 from matplotlib import cm
 from hparams import hparams, hparams_debug_string
+import pyworld as pw
 
 fs = hparams.sample_rate
 
@@ -343,9 +344,15 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
     # Predicted mel spectrogram
     if mel_outputs is not None:
         mel_output = mel_outputs[idx].cpu().data.numpy()
-        mel_output = prepare_spec_image(audio._denormalize(mel_output))
-        writer.add_image("Predicted mel spectrogram", mel_output, global_step)
-
+        if hparams.vocoder != "world":
+            mel_output = prepare_spec_image(audio._denormalize(mel_output))
+            writer.add_image("Predicted mel spectrogram", mel_output, global_step)
+        else:
+            mel_output_prep = prepare_spec_image(mel_output)
+            writer.add_image("Predicted WORLD output", mel_output_prep, global_step)
+            print("mel_output ", mel_output.shape )
+            signal = pw.synthesize(mel_output[:,0], mel_output[:,1:128], mel_output[:,129:131], hparams.sample_rate, pw.default_frame_period)
+            
     # Predicted spectrogram
     if linear_outputs is not None:
         linear_output = linear_outputs[idx].cpu().data.numpy()
@@ -364,6 +371,8 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
             pass
         audio.save_wav(signal, path)
 
+        
+        
     # Target mel spectrogram
     if mel_outputs is not None:
         mel_output = mel[idx].cpu().data.numpy()
@@ -530,8 +539,8 @@ def train(model, data_loader, optimizer, writer,
                     text_positions=text_positions, frame_positions=frame_positions,
                     input_lengths=input_lengths)
             elif train_seq2seq:
-                mel_outputs, attn, done_hat = model.seq2seq(
-                    x, mel,
+                mel_outputs, attn, done_hat, decoder_states = model.seq2seq(
+                    x, mel_targets=mel,
                     text_positions=text_positions, frame_positions=frame_positions,
                     input_lengths=input_lengths)
                 # reshape
@@ -704,6 +713,11 @@ if __name__ == "__main__":
     # Which model to be trained
     train_seq2seq = args["--train-seq2seq-only"]
     train_postnet = args["--train-postnet-only"]
+    
+    if hparams.vocoder == "world":
+        train_postnet = False
+        train_seq2seq = True
+    
     # train both if not specified
     if not train_seq2seq and not train_postnet:
         print("Training whole model")
@@ -727,6 +741,10 @@ if __name__ == "__main__":
         hparams.parse_json(json.dumps(preset))
         print("Override hyper parameters with preset \"{}\": {}".format(
             hparams.builder, json.dumps(preset, indent=4)))
+
+    if hparams.vocoder == "world":
+        # WORLD encoder dimensions are determined by the encoder
+        hparams.num_mels = 1 + pw.get_num_aperiodicities(hparams.sample_rate) + hparams.coded_env_dim 
 
     _frontend = getattr(frontend, hparams.frontend)
 
