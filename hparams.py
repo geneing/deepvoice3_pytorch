@@ -131,7 +131,7 @@ hparams = tf.contrib.training.HParams(
     clip_thresh=0.1,
 
     # Save
-    checkpoint_interval=5000,
+    checkpoint_interval=50,
 
     # Eval:
     # this can be list for multple layers of attention

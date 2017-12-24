@@ -351,7 +351,20 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
             mel_output_prep = prepare_spec_image(mel_output)
             writer.add_image("Predicted WORLD output", mel_output_prep, global_step)
             print("mel_output ", mel_output.shape )
-            signal = pw.synthesize(mel_output[:,0], mel_output[:,1:128], mel_output[:,129:131], hparams.sample_rate, pw.default_frame_period)
+            nfft = pw.get_cheaptrick_fft_size( hparams.sample_rate )
+            f0 = mel_output[:,0].astype(np.float64)
+            sp = pw.decode_spectral_envelope(mel_output[:,1:(hparams.coded_env_dim+1)].astype(np.float64), hparams.sample_rate, nfft)
+            ap = pw.decode_aperiodicity(mel_output[:,(hparams.coded_env_dim+1):hparams.num_mels].astype(np.float64), hparams.sample_rate, nfft)
+            signal = pw.synthesize(f0, sp, ap, hparams.sample_rate, pw.default_frame_period)
+            signal /= np.max(np.abs(signal))
+            path = join(checkpoint_dir, "step{:09d}_predicted.wav".format(
+                global_step))
+            try:
+                writer.add_audio("Predicted audio signal", signal, global_step, sample_rate=fs)
+            except:
+                # TODO:
+                pass
+        audio.save_wav(signal, path)
             
     # Predicted spectrogram
     if linear_outputs is not None:
