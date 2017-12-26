@@ -348,9 +348,12 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
             mel_output = prepare_spec_image(audio._denormalize(mel_output))
             writer.add_image("Predicted mel spectrogram", mel_output, global_step)
         else:
-            mel_output_prep = prepare_spec_image(mel_output)
-            writer.add_image("Predicted WORLD output", mel_output_prep, global_step)
-            print("mel_output ", mel_output.shape )
+            mel_output_prep = mel_output
+            try:
+                writer.add_image("Predicted WORLD output", mel_output_prep, global_step)
+            except:
+                pass
+            
             nfft = pw.get_cheaptrick_fft_size( hparams.sample_rate )
             f0 = mel_output[:,0].astype(np.float64)
             sp = pw.decode_spectral_envelope(mel_output[:,1:(hparams.coded_env_dim+1)].astype(np.float64), hparams.sample_rate, nfft)
@@ -383,8 +386,6 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
             # TODO:
             pass
         audio.save_wav(signal, path)
-
-        
         
     # Target mel spectrogram
     if mel_outputs is not None:
@@ -397,6 +398,17 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
         linear_output = y[idx].cpu().data.numpy()
         spectrogram = prepare_spec_image(audio._denormalize(linear_output))
         writer.add_image("Target linear spectrogram", spectrogram, global_step)
+
+    #ei
+    path = join(checkpoint_dir, "step{:09d}_mel_target.npy".format(
+                global_step))
+    mel_output = mel[idx].cpu().data.numpy()
+    np.save(path, mel_output)
+
+    path = join(checkpoint_dir, "step{:09d}_mel_out.npy".format(
+                global_step))
+    mel_output = mel_outputs[idx].cpu().data.numpy()
+    np.save(path, mel_output)
 
 
 def logit(x, eps=1e-8):
@@ -467,7 +479,27 @@ def guided_attentions(input_lengths, target_lengths, max_target_len, g=0.2):
                                 target_lengths[b], max_target_len, g).T
     return W
 
+def normalize( data ):
+        f0 = data[:,:,0]
+        sp = data[:,:,1:(hparams.coded_env_dim+1)]
+        ap = data[:,:,(hparams.coded_env_dim+1):hparams.num_mels]
 
+        f0 = f0 / hparams.f0max
+        sp = (sp - hparams.spmin) / (hparams.spmax - hparams.spmin)
+        ap = (ap - hparams.apmin) / (hparams.apmax - hparams.apmin)
+        return np.concatenate([f0[:,:,np.newaxis],sp,ap],axis=2)
+
+def denormalize( data ):
+        f0 = data[:,0]
+        sp = data[:,1:(hparams.coded_env_dim+1)]
+        ap = data[:,(hparams.coded_env_dim+1):hparams.num_mels]
+
+        f0 = f0 * hparams.f0max
+        sp = sp * (hparams.spmax - hparams.spmin) + hparams.spmin
+        ap = ap * (hparams.apmax - hparams.apmin) + hparams.apmin 
+        return np.hstack([f0,sp,ap])
+        
+        
 def train(model, data_loader, optimizer, writer,
           init_lr=0.002,
           checkpoint_dir=None, checkpoint_interval=None, nepochs=None,
@@ -504,6 +536,9 @@ def train(model, data_loader, optimizer, writer,
             text_positions, frame_positions = positions
 
             # Downsample mel spectrogram
+            if hparams.vocoder == "world":
+                mel = torch.from_numpy(normalize(mel))
+                
             if downsample_step > 1:
                 mel = mel[:, 0::downsample_step, :]
 
@@ -553,7 +588,7 @@ def train(model, data_loader, optimizer, writer,
                     input_lengths=input_lengths)
             elif train_seq2seq:
                 mel_outputs, attn, done_hat, decoder_states = model.seq2seq(
-                    x, mel_targets=mel,
+                    x, mel,
                     text_positions=text_positions, frame_positions=frame_positions,
                     input_lengths=input_lengths)
                 # reshape

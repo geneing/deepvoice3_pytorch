@@ -77,9 +77,14 @@ hparams = tf.contrib.training.HParams(
     min_level_db=-100,
     ref_level_db=20,
 
-    coded_env_dim = 128,
+    coded_env_dim = 64,
     code_env=True,
     code_aper=True,
+    f0max = 2000.,
+    spmax = 50.,
+    spmin = -50., 
+    apmax = 1., 
+    apmin =-50., 
     vocoder = "world",
     
     # Model:
@@ -114,7 +119,7 @@ hparams = tf.contrib.training.HParams(
     # Adding the divergence to the loss stabilizes training, expecially for
     # very deep (> 10 layers) networks.
     # Binary div loss seems has approx 10x scale compared to L1 loss, so I choose 0.1.
-    binary_divergence_weight=0.1,  # set 0 to disable
+    binary_divergence_weight=0.01,  # set 0 to disable
     use_guided_attention=True,
     guided_attention_sigma=0.2,
 
@@ -131,7 +136,7 @@ hparams = tf.contrib.training.HParams(
     clip_thresh=0.1,
 
     # Save
-    checkpoint_interval=5000,
+    checkpoint_interval=50,
 
     # Eval:
     # this can be list for multple layers of attention
