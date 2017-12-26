@@ -354,6 +354,7 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
             except:
                 pass
             
+            mel_output = denormalize(mel_output)
             nfft = pw.get_cheaptrick_fft_size( hparams.sample_rate )
             f0 = mel_output[:,0].astype(np.float64)
             sp = pw.decode_spectral_envelope(mel_output[:,1:(hparams.coded_env_dim+1)].astype(np.float64), hparams.sample_rate, nfft)
@@ -407,7 +408,7 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
 
     path = join(checkpoint_dir, "step{:09d}_mel_out.npy".format(
                 global_step))
-    mel_output = mel_outputs[idx].cpu().data.numpy()
+    mel_output = denormalize(mel_outputs[idx].cpu().data.numpy())
     np.save(path, mel_output)
 
 
@@ -497,7 +498,7 @@ def denormalize( data ):
         f0 = f0 * hparams.f0max
         sp = sp * (hparams.spmax - hparams.spmin) + hparams.spmin
         ap = ap * (hparams.apmax - hparams.apmin) + hparams.apmin 
-        return np.hstack([f0,sp,ap])
+        return np.hstack([f0[:,np.newaxis],sp,ap])
         
         
 def train(model, data_loader, optimizer, writer,

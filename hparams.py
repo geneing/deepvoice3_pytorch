@@ -22,7 +22,7 @@ hparams = tf.contrib.training.HParams(
     # Convenient model builder
     # [deepvoice3, nyanko, latest]
     # Definitions can be found at deepvoice3_pytorch/builder.py
-    # deepvoice3: build DeepVoice3　https://arxiv.org/abs/1710.07654
+    # deepvoice3: build DeepVoice3 https://arxiv.org/abs/1710.07654
     # nyanko: https://arxiv.org/abs/1710.08969
     # latest: Latest model I (@r9y9) have been working on.
     builder="deepvoice3",
