@@ -316,6 +316,7 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
     idx = min(1, len(input_lengths) - 1)
     input_length = input_lengths[idx]
 
+    fs = hparams.sample_rate
     # Alignment
     # Multi-hop attention
     if attn is not None and attn.dim() == 4:
@@ -342,6 +343,27 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
         writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1).T) * 255), global_step)
 
     # Predicted mel spectrogram
+#    if mel_outputs is not None:
+#        try:
+#            mels = mel_outputs.cpu().data.numpy()
+#            nfft = pw.get_cheaptrick_fft_size( hparams.sample_rate )
+#            signal_out = []
+#            if hparams.vocoder == "world":
+#                for k in range(mels.shape[0]):
+#                    mel1 = mels[k,:,:]
+#                    mel1 = denormalize(mel1)
+#                    f0 = mel1[:,0].astype(np.float64)
+#                    sp = pw.decode_spectral_envelope(mel1[:,1:(hparams.coded_env_dim+1)].astype(np.float64), hparams.sample_rate, nfft)
+#                    ap = pw.decode_aperiodicity(mel1[:,(hparams.coded_env_dim+1):hparams.num_mels].astype(np.float64), hparams.sample_rate, nfft)
+#                
+#                    signal = pw.synthesize(f0, sp, ap, hparams.sample_rate, pw.default_frame_period)
+#                    signal /= np.max(np.abs(signal))
+#                    signal_out.append(signal)
+#                signal_out=np.asarray(signal_out)
+#                writer.add_audio("Predicted audio signal", signal_out, global_step, sample_rate=fs)
+#        except:
+#            print("Unexpected error:", sys.exc_info())
+            
     if mel_outputs is not None:
         mel_output = mel_outputs[idx].cpu().data.numpy()
         if hparams.vocoder != "world":
@@ -359,17 +381,32 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
             f0 = mel_output[:,0].astype(np.float64)
             sp = pw.decode_spectral_envelope(mel_output[:,1:(hparams.coded_env_dim+1)].astype(np.float64), hparams.sample_rate, nfft)
             ap = pw.decode_aperiodicity(mel_output[:,(hparams.coded_env_dim+1):hparams.num_mels].astype(np.float64), hparams.sample_rate, nfft)
+            
             signal = pw.synthesize(f0, sp, ap, hparams.sample_rate, pw.default_frame_period)
-            signal /= np.max(np.abs(signal))
-            path = join(checkpoint_dir, "step{:09d}_predicted.wav".format(
-                global_step))
+            path = join(checkpoint_dir, "step{:09d}_out.wav".format(
+                global_step))            
+            audio.save_wav(signal, path)
+            
             try:
+                signal /= np.max(np.abs(signal))
                 writer.add_audio("Predicted audio signal", signal, global_step, sample_rate=fs)
             except:
-                # TODO:
-                pass
-        audio.save_wav(signal, path)
+                print("Unexpected error:", sys.exc_info())
             
+            mel_tgt = mel[idx].cpu().data.numpy()
+            mel_tgt = denormalize(mel_tgt)
+
+            f0 = mel_tgt[:,0].astype(np.float64)
+            sp = pw.decode_spectral_envelope(mel_tgt[:,1:(hparams.coded_env_dim+1)].astype(np.float64), hparams.sample_rate, nfft)
+            ap = pw.decode_aperiodicity(mel_tgt[:,(hparams.coded_env_dim+1):hparams.num_mels].astype(np.float64), hparams.sample_rate, nfft)
+            
+            signal = pw.synthesize(f0, sp, ap, hparams.sample_rate, pw.default_frame_period)
+            try:
+                signal /= np.max(np.abs(signal))
+                writer.add_audio("Target audio signal", signal, global_step, sample_rate=fs)
+            except:
+                print("Unexpected error :", sys.exc_info())
+           
     # Predicted spectrogram
     if linear_outputs is not None:
         linear_output = linear_outputs[idx].cpu().data.numpy()
@@ -404,7 +441,7 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
     path = join(checkpoint_dir, "step{:09d}_mel_target.npy".format(
                 global_step))
     mel_output = mel[idx].cpu().data.numpy()
-    np.save(path, mel_output)
+    np.save(path, denormalize(mel_output))
 
     path = join(checkpoint_dir, "step{:09d}_mel_out.npy".format(
                 global_step))
