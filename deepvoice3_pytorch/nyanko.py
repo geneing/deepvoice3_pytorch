@@ -15,13 +15,14 @@ from .deepvoice3 import AttentionLayer
 
 class Encoder(nn.Module):
     def __init__(self, n_vocab, embed_dim, channels, kernel_size=3,
-                 n_speakers=1, speaker_embed_dim=16,
+                 n_speakers=1, speaker_embed_dim=16, embedding_weight_std=0.01,
                  padding_idx=None, dropout=0.1):
         super(Encoder, self).__init__()
         self.dropout = dropout
 
         # Text input embeddings
-        self.embed_tokens = Embedding(n_vocab, embed_dim, padding_idx)
+        self.embed_tokens = Embedding(
+            n_vocab, embed_dim, padding_idx, embedding_weight_std)
 
         E = embed_dim
         D = channels
@@ -80,6 +81,10 @@ class Decoder(nn.Module):
                  force_monotonic_attention=False,
                  query_position_rate=1.0,
                  key_position_rate=1.29,
+                 window_ahead=3,
+                 window_backward=1,
+                 key_projection=False,
+                 value_projection=False,
                  ):
         super(Decoder, self).__init__()
         self.dropout = dropout
@@ -119,7 +124,11 @@ class Decoder(nn.Module):
                           dilation=3, causal=True, std_mul=1.0, dropout=dropout),
         ])
 
-        self.attention = AttentionLayer(D, D, dropout=dropout)
+        self.attention = AttentionLayer(D, D, dropout=dropout,
+                                        window_ahead=window_ahead,
+                                        window_backward=window_backward,
+                                        key_projection=key_projection,
+                                        value_projection=value_projection)
 
         self.audio_decoder_modules = nn.ModuleList([
             Conv1d(2 * D, D, kernel_size=1, padding=0, dilation=1, std_mul=1.0),
@@ -154,11 +163,11 @@ class Decoder(nn.Module):
         self.embed_query_positions = Embedding(
             max_positions, D, padding_idx)
         self.embed_query_positions.weight.data = position_encoding_init(
-            max_positions, D, position_rate=query_position_rate)
+            max_positions, D, position_rate=query_position_rate, sinusoidal=True)
         self.embed_keys_positions = Embedding(
             max_positions, D, padding_idx)
         self.embed_keys_positions.weight.data = position_encoding_init(
-            max_positions, D, position_rate=key_position_rate)
+            max_positions, D, position_rate=key_position_rate, sinusoidal=True)
 
         # options
         self.max_decoder_steps = 200
@@ -390,5 +399,5 @@ class Converter(nn.Module):
             nn.Sigmoid(),
         )
 
-    def forward(self, x):
+    def forward(self, x, speaker_embed=None):
         return self.convnet(x.transpose(1, 2)).transpose(1, 2)

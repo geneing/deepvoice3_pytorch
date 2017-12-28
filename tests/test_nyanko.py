@@ -16,8 +16,6 @@ from nose.plugins.attrib import attr
 from deepvoice3_pytorch.builder import nyanko
 from deepvoice3_pytorch import MultiSpeakerTTSModel, AttentionSeq2Seq
 
-from fairseq.modules.conv_tbc import ConvTBC
-
 use_cuda = torch.cuda.is_available()
 num_mels = 80
 num_freq = 513
@@ -54,7 +52,7 @@ def test_nyanko_basics():
     x, y = _test_data()
 
     for v in [False, True]:
-        model = nyanko(n_vocab, mel_dim=num_mels, linear_dim=num_freq, r=1,
+        model = nyanko(n_vocab, mel_dim=num_mels, linear_dim=num_freq, r=1, downsample_step=4,
                        use_decoder_state_for_postnet_input=v)
         mel_outputs, linear_outputs, alignments, done = model(x, y)
 
@@ -81,7 +79,7 @@ def test_incremental_correctness():
     text_positions = Variable(torch.LongTensor(text_positions))
     frame_positions = Variable(torch.LongTensor(frame_positions))
 
-    model = nyanko(n_vocab, mel_dim=mel_dim, linear_dim=513,
+    model = nyanko(n_vocab, mel_dim=mel_dim, linear_dim=513, downsample_step=4,
                    r=r, force_monotonic_attention=False)
     model.eval()
 
@@ -126,7 +124,7 @@ def test_nyanko():
     text_positions = Variable(torch.LongTensor(text_positions))
     frame_positions = Variable(torch.LongTensor(frame_positions))
 
-    model = nyanko(n_vocab, mel_dim=mel_dim, linear_dim=513,
+    model = nyanko(n_vocab, mel_dim=mel_dim, linear_dim=513, downsample_step=4,
                    r=r, force_monotonic_attention=False)
     model.eval()
 

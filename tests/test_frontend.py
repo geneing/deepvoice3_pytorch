@@ -15,6 +15,7 @@ def test_en():
     assert t == "hello world.~"
 
 
+@attr("local_only")
 def test_ja():
     f = getattr(frontend, "jp")
     seq = f.text_to_sequence("こんにちわ")
@@ -51,7 +52,7 @@ def test_ja_jsut():
     from tqdm import trange
     import jaconv
 
-    d = jsut.TranscriptionDataSource("/home/ryuichi/data/jsut_ver1/",
+    d = jsut.TranscriptionDataSource("/home/ryuichi/data/jsut_ver1.1/",
                                      subsets=jsut.available_subsets)
     texts = d.collect_files()
 

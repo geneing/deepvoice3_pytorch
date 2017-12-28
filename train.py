@@ -11,8 +11,11 @@ options:
     --checkpoint-postnet=<path>  Restore postnet model from checkpoint path.
     --train-seq2seq-only         Train only seq2seq model.
     --train-postnet-only         Train only postnet model.
+    --restore-parts=<path>       Restore part of the model.
     --log-event-path=<name>      Log event path.
     --reset-optimizer            Reset optimizer.
+    --load-embedding=<path>      Load embedding from checkpoint.
+    --speaker-id=<N>             Use specific speaker of data in case for multi-speaker datasets.
     -h, --help                   Show this help message and exit
 """
 from docopt import docopt
@@ -50,6 +53,7 @@ import sys
 import os
 from tensorboardX import SummaryWriter
 from matplotlib import cm
+from warnings import warn
 from hparams import hparams, hparams_debug_string
 import pyworld as pw
 
@@ -94,35 +98,76 @@ def plot_alignment(alignment, path, info=None):
 
 
 class TextDataSource(FileDataSource):
-    def __init__(self, data_root):
+    def __init__(self, data_root, speaker_id=None):
         self.data_root = data_root
+        self.speaker_ids = None
+        self.multi_speaker = False
+        # If not None, filter by speaker_id
+        self.speaker_id = speaker_id
 
     def collect_files(self):
         meta = join(self.data_root, "train.txt")
         with open(meta, "rb") as f:
             lines = f.readlines()
-        lines = list(map(lambda l: l.decode("utf-8").split("|")[-1], lines))
-        return lines
+        l = lines[0].decode("utf-8").split("|")
+        assert len(l) == 4 or len(l) == 5
+        self.multi_speaker = len(l) == 5
+        texts = list(map(lambda l: l.decode("utf-8").split("|")[3], lines))
+        if self.multi_speaker:
+            speaker_ids = list(map(lambda l: int(l.decode("utf-8").split("|")[-1]), lines))
+            # Filter by speaker_id
+            # using multi-speaker dataset as a single speaker dataset
+            if self.speaker_id is not None:
+                indices = np.array(speaker_ids) == self.speaker_id
+                texts = list(np.array(texts)[indices])
+                self.multi_speaker = False
+                return texts
 
-    def collect_features(self, text):
+            return texts, speaker_ids
+        else:
+            return texts
+
+    def collect_features(self, *args):
+        if self.multi_speaker:
+            text, speaker_id = args
+        else:
+            text = args[0]
         seq = _frontend.text_to_sequence(text, p=hparams.replace_pronunciation_prob)
-        return np.asarray(seq, dtype=np.int32)
+        if self.multi_speaker:
+            return np.asarray(seq, dtype=np.int32), int(speaker_id)
+        else:
+            return np.asarray(seq, dtype=np.int32)
 
 
 class _NPYDataSource(FileDataSource):
-    def __init__(self, data_root, col):
+    def __init__(self, data_root, col, speaker_id=None):
         self.data_root = data_root
         self.col = col
         self.frame_lengths = []
+        self.speaker_id = speaker_id
 
     def collect_files(self):
         meta = join(self.data_root, "train.txt")
         with open(meta, "rb") as f:
             lines = f.readlines()
+        l = lines[0].decode("utf-8").split("|")
+        assert len(l) == 4 or len(l) == 5
+        multi_speaker = len(l) == 5
         self.frame_lengths = list(
             map(lambda l: int(l.decode("utf-8").split("|")[2]), lines))
-        lines = list(map(lambda l: l.decode("utf-8").split("|")[self.col], lines))
-        paths = list(map(lambda f: join(self.data_root, f), lines))
+
+        paths = list(map(lambda l: l.decode("utf-8").split("|")[self.col], lines))
+        paths = list(map(lambda f: join(self.data_root, f), paths))
+
+        if multi_speaker and self.speaker_id is not None:
+            speaker_ids = list(map(lambda l: int(l.decode("utf-8").split("|")[-1]), lines))
+            # Filter by speaker_id
+            # using multi-speaker dataset as a single speaker dataset
+            indices = np.array(speaker_ids) == self.speaker_id
+            paths = list(np.array(paths)[indices])
+            self.frame_lengths = list(np.array(self.frame_lengths)[indices])
+            # aha, need to cast numpy.int64 to int
+            self.frame_lengths = list(map(int, self.frame_lengths))
 
         return paths
 
@@ -131,13 +176,13 @@ class _NPYDataSource(FileDataSource):
 
 
 class MelSpecDataSource(_NPYDataSource):
-    def __init__(self, data_root):
-        super(MelSpecDataSource, self).__init__(data_root, 1)
+    def __init__(self, data_root, speaker_id=None):
+        super(MelSpecDataSource, self).__init__(data_root, 1, speaker_id)
 
 
 class LinearSpecDataSource(_NPYDataSource):
-    def __init__(self, data_root):
-        super(LinearSpecDataSource, self).__init__(data_root, 0)
+    def __init__(self, data_root, speaker_id=None):
+        super(LinearSpecDataSource, self).__init__(data_root, 0, speaker_id)
 
 
 class PartialyRandomizedSimilarTimeLengthSampler(Sampler):
@@ -153,7 +198,10 @@ class PartialyRandomizedSimilarTimeLengthSampler(Sampler):
         self.lengths, self.sorted_indices = torch.sort(torch.LongTensor(lengths))
         self.batch_size = batch_size
         if batch_group_size is None:
-            batch_group_size = batch_size * 32
+            batch_group_size = min(batch_size * 32, len(self.lengths))
+            if batch_group_size % batch_size != 0:
+                batch_group_size -= batch_group_size % batch_size
+
         self.batch_group_size = batch_group_size
         assert batch_group_size % batch_size == 0
         self.permutate = permutate
@@ -189,9 +237,15 @@ class PyTorchDataset(object):
         self.X = X
         self.Mel = Mel
         self.Y = Y
+        # alias
+        self.multi_speaker = X.file_data_source.multi_speaker
 
     def __getitem__(self, idx):
-        return self.X[idx], self.Mel[idx], self.Y[idx]
+        if self.multi_speaker:
+            text, speaker_id = self.X[idx]
+            return text, self.Mel[idx], self.Y[idx], speaker_id
+        else:
+            return self.X[idx], self.Mel[idx], self.Y[idx]
 
     def __len__(self):
         return len(self.X)
@@ -234,6 +288,7 @@ def collate_fn(batch):
     """Create batch"""
     r = hparams.outputs_per_step
     downsample_step = hparams.downsample_step
+    multi_speaker = len(batch[0]) == 4
 
     # Lengths
     input_lengths = [len(x[0]) for x in batch]
@@ -288,8 +343,13 @@ def collate_fn(batch):
                      for x in batch])
     done = torch.FloatTensor(done).unsqueeze(-1)
 
+    if multi_speaker:
+        speaker_ids = torch.LongTensor([x[3] for x in batch])
+    else:
+        speaker_ids = None
+
     return x_batch, input_lengths, mel_batch, y_batch, \
-        (text_positions, frame_positions), done, target_lengths
+        (text_positions, frame_positions), done, target_lengths, speaker_ids
 
 
 def time_string():
@@ -306,6 +366,56 @@ def prepare_spec_image(spectrogram):
     spectrogram = (spectrogram - np.min(spectrogram)) / (np.max(spectrogram) - np.min(spectrogram))
     spectrogram = np.flip(spectrogram, axis=1)  # flip against freq axis
     return np.uint8(cm.magma(spectrogram.T) * 255)
+
+
+def eval_model(global_step, writer, model, checkpoint_dir, ismultispeaker):
+    # harded coded
+    texts = [
+        "Scientists at the CERN laboratory say they have discovered a new particle.",
+        "There's a way to measure the acute emotional intelligence that has never gone out of style.",
+        "President Trump met with other leaders at the Group of 20 conference.",
+        "Generative adversarial network or variational auto-encoder.",
+        "Please call Stella.",
+        "Some have accepted this as a miracle without any physical explanation.",
+    ]
+    import synthesis
+    synthesis._frontend = _frontend
+
+    eval_output_dir = join(checkpoint_dir, "eval")
+    os.makedirs(eval_output_dir, exist_ok=True)
+
+    # hard coded
+    speaker_ids = [0, 1, 10] if ismultispeaker else [None]
+    for speaker_id in speaker_ids:
+        speaker_str = "multispeaker{}".format(speaker_id) if speaker_id is not None else "single"
+
+        for idx, text in enumerate(texts):
+            signal, alignment, _, mel = synthesis.tts(
+                model, text, p=0, speaker_id=speaker_id, fast=False)
+            signal /= np.max(np.abs(signal))
+
+            # Alignment
+            path = join(eval_output_dir, "step{:09d}_text{}_{}_alignment.png".format(
+                global_step, idx, speaker_str))
+            save_alignment(path, alignment)
+            tag = "eval_averaged_alignment_{}_{}".format(idx, speaker_str)
+            writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1).T) * 255), global_step)
+
+            # Mel
+            writer.add_image("(Eval) Predicted mel spectrogram text{}_{}".format(idx, speaker_str),
+                             prepare_spec_image(mel), global_step)
+
+            # Audio
+            path = join(eval_output_dir, "step{:09d}_text{}_{}_predicted.wav".format(
+                global_step, idx, speaker_str))
+            audio.save_wav(signal, path)
+
+            try:
+                writer.add_audio("(Eval) Predicted audio signal {}_{}".format(idx, speaker_str),
+                                 signal, global_step, sample_rate=fs)
+            except Exception as e:
+                warn(str(e))
+                pass
 
 
 def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
@@ -420,8 +530,8 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
             global_step))
         try:
             writer.add_audio("Predicted audio signal", signal, global_step, sample_rate=fs)
-        except:
-            # TODO:
+        except Exception as e:
+            warn(str(e))
             pass
         audio.save_wav(signal, path)
         
@@ -543,7 +653,6 @@ def train(model, data_loader, optimizer, writer,
           checkpoint_dir=None, checkpoint_interval=None, nepochs=None,
           clip_thresh=1.0,
           train_seq2seq=True, train_postnet=True):
-    model.train()
     if use_cuda:
         model = model.cuda()
     linear_dim = model.linear_dim
@@ -559,8 +668,11 @@ def train(model, data_loader, optimizer, writer,
     global global_step, global_epoch
     while global_epoch < nepochs:
         running_loss = 0.
-        for step, (x, input_lengths, mel, y, positions, done, target_lengths) \
+        for step, (x, input_lengths, mel, y, positions, done, target_lengths,
+                   speaker_ids) \
                 in tqdm(enumerate(data_loader)):
+            model.train()
+            ismultispeaker = speaker_ids is not None
             # Learning rate schedule
             if hparams.lr_schedule is not None:
                 lr_schedule_f = getattr(lrschedule, hparams.lr_schedule)
@@ -578,7 +690,7 @@ def train(model, data_loader, optimizer, writer,
                 mel = torch.from_numpy(normalize(mel))
                 
             if downsample_step > 1:
-                mel = mel[:, 0::downsample_step, :]
+                mel = mel[:, 0::downsample_step, :].contiguous()
 
             # Lengths
             input_lengths = input_lengths.long().numpy()
@@ -590,6 +702,7 @@ def train(model, data_loader, optimizer, writer,
             frame_positions = Variable(frame_positions)
             done = Variable(done)
             target_lengths = Variable(target_lengths)
+            speaker_ids = Variable(speaker_ids) if ismultispeaker else None
             if use_cuda:
                 if train_seq2seq:
                     x = x.cuda()
@@ -599,6 +712,7 @@ def train(model, data_loader, optimizer, writer,
                     y = y.cuda()
                 mel = mel.cuda()
                 done, target_lengths = done.cuda(), target_lengths.cuda()
+                speaker_ids = speaker_ids.cuda() if ismultispeaker else None
 
             # Create mask if we use masked loss
             if hparams.masked_loss_weight > 0:
@@ -621,11 +735,12 @@ def train(model, data_loader, optimizer, writer,
             # Apply model
             if train_seq2seq and train_postnet:
                 mel_outputs, linear_outputs, attn, done_hat = model(
-                    x, mel,
+                    x, mel, speaker_ids=speaker_ids,
                     text_positions=text_positions, frame_positions=frame_positions,
                     input_lengths=input_lengths)
             elif train_seq2seq:
                 mel_outputs, attn, done_hat, decoder_states = model.seq2seq(
+                mel_outputs, attn, done_hat, _ = model.seq2seq(
                     x, mel,
                     text_positions=text_positions, frame_positions=frame_positions,
                     input_lengths=input_lengths)
@@ -633,6 +748,7 @@ def train(model, data_loader, optimizer, writer,
                 mel_outputs = mel_outputs.view(len(mel), -1, mel.size(-1))
                 linear_outputs = None
             elif train_postnet:
+                assert speaker_ids is None
                 linear_outputs = model.postnet(mel)
                 mel_outputs, attn, done_hat = None, None, None
 
@@ -686,6 +802,9 @@ def train(model, data_loader, optimizer, writer,
                     model, optimizer, global_step, checkpoint_dir, global_epoch,
                     train_seq2seq, train_postnet)
 
+            if global_step > 0 and global_step % hparams.eval_interval == 0:
+                eval_model(global_step, writer, model, checkpoint_dir, ismultispeaker)
+
             # Update
             loss.backward()
             if clip_thresh > 0:
@@ -735,9 +854,10 @@ def save_checkpoint(model, optimizer, step, checkpoint_dir, epoch,
 
     checkpoint_path = join(
         checkpoint_dir, "checkpoint_step{:09d}{}.pth".format(global_step, suffix))
+    optimizer_state = optimizer.state_dict() if hparams.save_optimizer_state else None
     torch.save({
         "state_dict": m.state_dict(),
-        "optimizer": optimizer.state_dict(),
+        "optimizer": optimizer_state,
         "global_step": step,
         "global_epoch": epoch,
     }, checkpoint_path)
@@ -746,11 +866,14 @@ def save_checkpoint(model, optimizer, step, checkpoint_dir, epoch,
 
 def build_model():
     model = getattr(builder, hparams.builder)(
+        n_speakers=hparams.n_speakers,
+        speaker_embed_dim=hparams.speaker_embed_dim,
         n_vocab=_frontend.n_vocab,
         embed_dim=hparams.text_embed_dim,
         mel_dim=hparams.num_mels,
         linear_dim=hparams.fft_size // 2 + 1,
         r=hparams.outputs_per_step,
+        downsample_step=hparams.downsample_step,
         padding_idx=hparams.padding_idx,
         dropout=hparams.dropout,
         kernel_size=hparams.kernel_size,
@@ -762,6 +885,12 @@ def build_model():
         force_monotonic_attention=hparams.force_monotonic_attention,
         use_decoder_state_for_postnet_input=hparams.use_decoder_state_for_postnet_input,
         max_positions=hparams.max_positions,
+        speaker_embedding_weight_std=hparams.speaker_embedding_weight_std,
+        freeze_embedding=hparams.freeze_embedding,
+        window_ahead=hparams.window_ahead,
+        window_backward=hparams.window_backward,
+        key_projection=hparams.key_projection,
+        value_projection=hparams.value_projection,
     )
     return model
 
@@ -774,12 +903,30 @@ def load_checkpoint(path, model, optimizer, reset_optimizer):
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint["state_dict"])
     if not reset_optimizer:
-        print("Load optimizer state from {}".format(path))
-        optimizer.load_state_dict(checkpoint["optimizer"])
+        optimizer_state = checkpoint["optimizer"]
+        if optimizer_state is not None:
+            print("Load optimizer state from {}".format(path))
+            optimizer.load_state_dict(checkpoint["optimizer"])
     global_step = checkpoint["global_step"]
     global_epoch = checkpoint["global_epoch"]
 
     return model
+
+
+def _load_embedding(path, model):
+    state = torch.load(path)["state_dict"]
+    key = "seq2seq.encoder.embed_tokens.weight"
+    model.seq2seq.encoder.embed_tokens.weight.data = state[key]
+
+
+# https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/3
+def restore_parts(path, model):
+    print("Restore part of the model from: {}".format(path))
+    state = torch.load(path)["state_dict"]
+    model_dict = model.state_dict()
+    valid_state_dict = {k: v for k, v in state.items() if k in model_dict}
+    model_dict.update(valid_state_dict)
+    model.load_state_dict(model_dict)
 
 
 if __name__ == "__main__":
@@ -789,6 +936,11 @@ if __name__ == "__main__":
     checkpoint_path = args["--checkpoint"]
     checkpoint_seq2seq_path = args["--checkpoint-seq2seq"]
     checkpoint_postnet_path = args["--checkpoint-postnet"]
+    load_embedding = args["--load-embedding"]
+    checkpoint_restore_parts = args["--restore-parts"]
+    speaker_id = args["--speaker-id"]
+    speaker_id = int(speaker_id) if speaker_id is not None else None
+
     data_root = args["--data-root"]
     if data_root is None:
         data_root = join(dirname(__file__), "data", "ljspeech")
@@ -821,12 +973,12 @@ if __name__ == "__main__":
     assert hparams.name == "deepvoice3"
 
     # Presets
-    if hparams.use_preset:
-        preset = hparams.presets[hparams.builder]
+    if hparams.preset is not None and hparams.preset != "":
+        preset = hparams.presets[hparams.preset]
         import json
         hparams.parse_json(json.dumps(preset))
         print("Override hyper parameters with preset \"{}\": {}".format(
-            hparams.builder, json.dumps(preset, indent=4)))
+            hparams.preset, json.dumps(preset, indent=4)))
 
     if hparams.vocoder == "world":
         # WORLD encoder dimensions are determined by the encoder
@@ -837,9 +989,9 @@ if __name__ == "__main__":
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Input dataset definitions
-    X = FileSourceDataset(TextDataSource(data_root))
-    Mel = FileSourceDataset(MelSpecDataSource(data_root))
-    Y = FileSourceDataset(LinearSpecDataSource(data_root))
+    X = FileSourceDataset(TextDataSource(data_root, speaker_id))
+    Mel = FileSourceDataset(MelSpecDataSource(data_root, speaker_id))
+    Y = FileSourceDataset(LinearSpecDataSource(data_root, speaker_id))
 
     # Prepare sampler
     frame_lengths = Mel.file_data_source.frame_lengths
@@ -855,11 +1007,16 @@ if __name__ == "__main__":
 
     # Model
     model = build_model()
+    if use_cuda:
+        model = model.cuda()
 
     optimizer = optim.Adam(model.get_trainable_parameters(),
                            lr=hparams.initial_learning_rate, betas=(
         hparams.adam_beta1, hparams.adam_beta2),
         eps=hparams.adam_eps, weight_decay=hparams.weight_decay)
+
+    if checkpoint_restore_parts is not None:
+        restore_parts(checkpoint_restore_parts, model)
 
     # Load checkpoints
     if checkpoint_postnet_path is not None:
@@ -870,6 +1027,11 @@ if __name__ == "__main__":
 
     if checkpoint_path is not None:
         load_checkpoint(checkpoint_path, model, optimizer, reset_optimizer)
+
+    # Load embedding
+    if load_embedding is not None:
+        print("Loading embedding from {}".format(load_embedding))
+        _load_embedding(load_embedding, model)
 
     # Setup summary writer for tensorboard
     if log_event_path is None:
