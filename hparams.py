@@ -25,7 +25,7 @@ hparams = tf.contrib.training.HParams(
     # deepvoice3: build DeepVoice3　https://arxiv.org/abs/1710.07654
     # nyanko: https://arxiv.org/abs/1710.08969
     # latest: Latest model I (@r9y9) have been working on.
-    builder="latest",
+    builder="deepvoice3",
 
     # Presets known to work good.
     # NOTE: If True, this will overwride params with presets[builder]
@@ -69,7 +69,7 @@ hparams = tf.contrib.training.HParams(
     },
 
     # Audio:
-    num_mels=80,
+    num_mels=1027, #80,
     fft_size=1024,
     hop_size=256,
     sample_rate=22050,
