@@ -61,7 +61,7 @@ def _process_utterance(out_dir, index, wav_path, text):
         ap_coded=pw.code_aperiodicity(ap,hparams.sample_rate)
         sp_coded=pw.code_spectral_envelope(sp,hparams.sample_rate,hparams.coded_env_dim)
         
-        world_spec = np.hstack([f0[:,np.newaxis],sp,ap])
+        world_spec = np.hstack([f0[:,np.newaxis],sp_coded,ap_coded])
         n_frames = world_spec.shape[0]
         spectrogram_filename = 'ljspeech-spec-%05d.npy' % index
         encoded_filename = 'ljspeech-world-%05d.npy' % index

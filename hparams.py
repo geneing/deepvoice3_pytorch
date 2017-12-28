@@ -22,7 +22,7 @@ hparams = tf.contrib.training.HParams(
     # Convenient model builder
     # [deepvoice3, nyanko, latest]
     # Definitions can be found at deepvoice3_pytorch/builder.py
-    # deepvoice3: build DeepVoice3　https://arxiv.org/abs/1710.07654
+    # deepvoice3: build DeepVoice3 https://arxiv.org/abs/1710.07654
     # nyanko: https://arxiv.org/abs/1710.08969
     # latest: Latest model I (@r9y9) have been working on.
     builder="deepvoice3",
@@ -33,7 +33,7 @@ hparams = tf.contrib.training.HParams(
     presets={
         "deepvoice3": {
             "downsample_step": 1,
-            "outputs_per_step": 4,
+            "outputs_per_step": 1,
             "dropout": 1 - 0.95,
             "kernel_size": 7,
             "text_embed_dim": 256,
@@ -69,7 +69,7 @@ hparams = tf.contrib.training.HParams(
     },
 
     # Audio:
-    num_mels=1027, #80,
+    num_mels=80, #WORLD encoder will adjust this value
     fft_size=1024,
     hop_size=256,
     sample_rate=22050,
@@ -77,16 +77,21 @@ hparams = tf.contrib.training.HParams(
     min_level_db=-100,
     ref_level_db=20,
 
-    coded_env_dim = 128,
-    code_env=False,
-    code_aper=False,
+    coded_env_dim = 64,
+    code_env=True,
+    code_aper=True,
+    f0max = 2000.,
+    spmax = 50.,
+    spmin = -50., 
+    apmax = 1., 
+    apmin =-50., 
     vocoder = "world",
     
     # Model:
-    downsample_step=4,  # must be 4 when builder="nyanko"
+    downsample_step=1,  # must be 4 when builder="nyanko"
     outputs_per_step=1,  # must be 1 when builder="nyanko"
     padding_idx=0,
-    max_positions=512,
+    max_positions=4*512,
     dropout=1 - 0.95,
     kernel_size=3,
     text_embed_dim=128,
@@ -104,7 +109,7 @@ hparams = tf.contrib.training.HParams(
 
     # Data loader
     pin_memory=True,
-    num_workers=2,
+    num_workers=8,
 
     # Loss
     masked_loss_weight=0.0,  # (1-w)*loss + w * masked_loss
@@ -114,7 +119,7 @@ hparams = tf.contrib.training.HParams(
     # Adding the divergence to the loss stabilizes training, expecially for
     # very deep (> 10 layers) networks.
     # Binary div loss seems has approx 10x scale compared to L1 loss, so I choose 0.1.
-    binary_divergence_weight=0.1,  # set 0 to disable
+    binary_divergence_weight=0.01,  # set 0 to disable
     use_guided_attention=True,
     guided_attention_sigma=0.2,
 
@@ -131,7 +136,7 @@ hparams = tf.contrib.training.HParams(
     clip_thresh=0.1,
 
     # Save
-    checkpoint_interval=5000,
+    checkpoint_interval=500,
 
     # Eval:
     # this can be list for multple layers of attention

@@ -51,6 +51,7 @@ import os
 from tensorboardX import SummaryWriter
 from matplotlib import cm
 from hparams import hparams, hparams_debug_string
+import pyworld as pw
 
 fs = hparams.sample_rate
 
@@ -315,6 +316,7 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
     idx = min(1, len(input_lengths) - 1)
     input_length = input_lengths[idx]
 
+    fs = hparams.sample_rate
     # Alignment
     # Multi-hop attention
     if attn is not None and attn.dim() == 4:
@@ -341,11 +343,70 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
         writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1).T) * 255), global_step)
 
     # Predicted mel spectrogram
+#    if mel_outputs is not None:
+#        try:
+#            mels = mel_outputs.cpu().data.numpy()
+#            nfft = pw.get_cheaptrick_fft_size( hparams.sample_rate )
+#            signal_out = []
+#            if hparams.vocoder == "world":
+#                for k in range(mels.shape[0]):
+#                    mel1 = mels[k,:,:]
+#                    mel1 = denormalize(mel1)
+#                    f0 = mel1[:,0].astype(np.float64)
+#                    sp = pw.decode_spectral_envelope(mel1[:,1:(hparams.coded_env_dim+1)].astype(np.float64), hparams.sample_rate, nfft)
+#                    ap = pw.decode_aperiodicity(mel1[:,(hparams.coded_env_dim+1):hparams.num_mels].astype(np.float64), hparams.sample_rate, nfft)
+#                
+#                    signal = pw.synthesize(f0, sp, ap, hparams.sample_rate, pw.default_frame_period)
+#                    signal /= np.max(np.abs(signal))
+#                    signal_out.append(signal)
+#                signal_out=np.asarray(signal_out)
+#                writer.add_audio("Predicted audio signal", signal_out, global_step, sample_rate=fs)
+#        except:
+#            print("Unexpected error:", sys.exc_info())
+            
     if mel_outputs is not None:
         mel_output = mel_outputs[idx].cpu().data.numpy()
-        mel_output = prepare_spec_image(audio._denormalize(mel_output))
-        writer.add_image("Predicted mel spectrogram", mel_output, global_step)
+        if hparams.vocoder != "world":
+            mel_output = prepare_spec_image(audio._denormalize(mel_output))
+            writer.add_image("Predicted mel spectrogram", mel_output, global_step)
+        else:
+            mel_output_prep = mel_output
+            try:
+                writer.add_image("Predicted WORLD output", mel_output_prep, global_step)
+            except:
+                pass
+            
+            mel_output = denormalize(mel_output)
+            nfft = pw.get_cheaptrick_fft_size( hparams.sample_rate )
+            f0 = mel_output[:,0].astype(np.float64)
+            sp = pw.decode_spectral_envelope(mel_output[:,1:(hparams.coded_env_dim+1)].astype(np.float64), hparams.sample_rate, nfft)
+            ap = pw.decode_aperiodicity(mel_output[:,(hparams.coded_env_dim+1):hparams.num_mels].astype(np.float64), hparams.sample_rate, nfft)
+            
+            signal = pw.synthesize(f0, sp, ap, hparams.sample_rate, pw.default_frame_period)
+            path = join(checkpoint_dir, "step{:09d}_out.wav".format(
+                global_step))            
+            audio.save_wav(signal, path)
+            
+            try:
+                signal /= np.max(np.abs(signal))
+                writer.add_audio("Predicted audio signal", signal, global_step, sample_rate=fs)
+            except:
+                print("Unexpected error:", sys.exc_info())
+            
+            mel_tgt = mel[idx].cpu().data.numpy()
+            mel_tgt = denormalize(mel_tgt)
 
+            f0 = mel_tgt[:,0].astype(np.float64)
+            sp = pw.decode_spectral_envelope(mel_tgt[:,1:(hparams.coded_env_dim+1)].astype(np.float64), hparams.sample_rate, nfft)
+            ap = pw.decode_aperiodicity(mel_tgt[:,(hparams.coded_env_dim+1):hparams.num_mels].astype(np.float64), hparams.sample_rate, nfft)
+            
+            signal = pw.synthesize(f0, sp, ap, hparams.sample_rate, pw.default_frame_period)
+            try:
+                signal /= np.max(np.abs(signal))
+                writer.add_audio("Target audio signal", signal, global_step, sample_rate=fs)
+            except:
+                print("Unexpected error :", sys.exc_info())
+           
     # Predicted spectrogram
     if linear_outputs is not None:
         linear_output = linear_outputs[idx].cpu().data.numpy()
@@ -363,7 +424,7 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
             # TODO:
             pass
         audio.save_wav(signal, path)
-
+        
     # Target mel spectrogram
     if mel_outputs is not None:
         mel_output = mel[idx].cpu().data.numpy()
@@ -375,6 +436,17 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
         linear_output = y[idx].cpu().data.numpy()
         spectrogram = prepare_spec_image(audio._denormalize(linear_output))
         writer.add_image("Target linear spectrogram", spectrogram, global_step)
+
+    #ei
+    path = join(checkpoint_dir, "step{:09d}_mel_target.npy".format(
+                global_step))
+    mel_output = mel[idx].cpu().data.numpy()
+    np.save(path, denormalize(mel_output))
+
+    path = join(checkpoint_dir, "step{:09d}_mel_out.npy".format(
+                global_step))
+    mel_output = denormalize(mel_outputs[idx].cpu().data.numpy())
+    np.save(path, mel_output)
 
 
 def logit(x, eps=1e-8):
@@ -399,6 +471,8 @@ def spec_loss(y_hat, y, mask, priority_bin=None, priority_w=0):
         l1_loss = w * masked_l1(y_hat, y, mask=mask) + (1 - w) * l1(y_hat, y)
     else:
         assert mask is None
+        #print(y_hat.size())
+        #print(y.size())
         l1_loss = l1(y_hat, y)
 
     # Priority L1 loss
@@ -443,7 +517,27 @@ def guided_attentions(input_lengths, target_lengths, max_target_len, g=0.2):
                                 target_lengths[b], max_target_len, g).T
     return W
 
+def normalize( data ):
+        f0 = data[:,:,0]
+        sp = data[:,:,1:(hparams.coded_env_dim+1)]
+        ap = data[:,:,(hparams.coded_env_dim+1):hparams.num_mels]
 
+        f0 = f0 / hparams.f0max
+        sp = (sp - hparams.spmin) / (hparams.spmax - hparams.spmin)
+        ap = (ap - hparams.apmin) / (hparams.apmax - hparams.apmin)
+        return np.concatenate([f0[:,:,np.newaxis],sp,ap],axis=2)
+
+def denormalize( data ):
+        f0 = data[:,0]
+        sp = data[:,1:(hparams.coded_env_dim+1)]
+        ap = data[:,(hparams.coded_env_dim+1):hparams.num_mels]
+
+        f0 = f0 * hparams.f0max
+        sp = sp * (hparams.spmax - hparams.spmin) + hparams.spmin
+        ap = ap * (hparams.apmax - hparams.apmin) + hparams.apmin 
+        return np.hstack([f0[:,np.newaxis],sp,ap])
+        
+        
 def train(model, data_loader, optimizer, writer,
           init_lr=0.002,
           checkpoint_dir=None, checkpoint_interval=None, nepochs=None,
@@ -455,6 +549,7 @@ def train(model, data_loader, optimizer, writer,
     linear_dim = model.linear_dim
     r = hparams.outputs_per_step
     downsample_step = hparams.downsample_step
+    
     current_lr = init_lr
 
     binary_criterion = nn.BCELoss()
@@ -479,6 +574,9 @@ def train(model, data_loader, optimizer, writer,
             text_positions, frame_positions = positions
 
             # Downsample mel spectrogram
+            if hparams.vocoder == "world":
+                mel = torch.from_numpy(normalize(mel))
+                
             if downsample_step > 1:
                 mel = mel[:, 0::downsample_step, :]
 
@@ -527,7 +625,7 @@ def train(model, data_loader, optimizer, writer,
                     text_positions=text_positions, frame_positions=frame_positions,
                     input_lengths=input_lengths)
             elif train_seq2seq:
-                mel_outputs, attn, done_hat = model.seq2seq(
+                mel_outputs, attn, done_hat, decoder_states = model.seq2seq(
                     x, mel,
                     text_positions=text_positions, frame_positions=frame_positions,
                     input_lengths=input_lengths)
@@ -543,6 +641,7 @@ def train(model, data_loader, optimizer, writer,
 
             # mel:
             if train_seq2seq:
+             
                 mel_l1_loss, mel_binary_div = spec_loss(
                     mel_outputs[:, :-r, :], mel[:, r:, :], decoder_target_mask)
                 mel_loss = (1 - w) * mel_l1_loss + w * mel_binary_div
@@ -554,6 +653,7 @@ def train(model, data_loader, optimizer, writer,
             # linear:
             if train_postnet:
                 n_priority_freq = int(hparams.priority_freq / (fs * 0.5) * linear_dim)
+
                 linear_l1_loss, linear_binary_div = spec_loss(
                     linear_outputs[:, :-r, :], y[:, r:, :], target_mask,
                     priority_bin=n_priority_freq,
@@ -699,6 +799,11 @@ if __name__ == "__main__":
     # Which model to be trained
     train_seq2seq = args["--train-seq2seq-only"]
     train_postnet = args["--train-postnet-only"]
+    
+    if hparams.vocoder == "world":
+        train_postnet = False
+        train_seq2seq = True
+    
     # train both if not specified
     if not train_seq2seq and not train_postnet:
         print("Training whole model")
@@ -722,6 +827,10 @@ if __name__ == "__main__":
         hparams.parse_json(json.dumps(preset))
         print("Override hyper parameters with preset \"{}\": {}".format(
             hparams.builder, json.dumps(preset, indent=4)))
+
+    if hparams.vocoder == "world":
+        # WORLD encoder dimensions are determined by the encoder
+        hparams.num_mels = 1 + pw.get_num_aperiodicities(hparams.sample_rate) + hparams.coded_env_dim 
 
     _frontend = getattr(frontend, hparams.frontend)
 

@@ -25,6 +25,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
     # Seq2seq
     h = encoder_channels  # hidden dim (channels)
     k = kernel_size   # kernel size
+
     encoder = Encoder(
         n_vocab, embed_dim, padding_idx=padding_idx,
         n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
@@ -33,7 +34,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
         convolutions=[(h, k, 1), (h, k, 1), (h, k, 1), (h, k, 1),
                       (h, k, 2), (h, k, 4), (h, k, 8)],
     )
-
+    
     h = decoder_channels
     decoder = Decoder(
         embed_dim, in_dim=mel_dim, r=r, padding_idx=padding_idx,
