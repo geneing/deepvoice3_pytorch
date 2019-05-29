@@ -17,6 +17,9 @@ def save_wav(wav, path):
     wav = wav * 32767 / max(0.01, np.max(np.abs(wav)))
     wavfile.write(path, hparams.sample_rate, wav.astype(np.int16))
 
+def trim_silence(wav):
+    return librosa.effects.trim(wav, top_db=60, frame_length=512, hop_length=128)[0]
+
 
 def preemphasis(x):
     from nnmnkwii.preprocessing import preemphasis
